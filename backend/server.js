@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const db = require("./database");
+const LMUSocketClient = require("./services/lmu-socket-client");
 require("dotenv").config();
 
 const app = express();
@@ -77,6 +78,31 @@ app.get("/api/lap-times/best", async (req, res) => {
   }
 });
 
+// Get best lap time for a specific driver/track/car combination
+app.get("/api/lap-times/personal-best", async (req, res) => {
+  try {
+    const { driver_name, track, car } = req.query;
+
+    if (!driver_name || !track || !car) {
+      return res.status(400).json({ error: "Missing required parameters" });
+    }
+
+    const [rows] = await db.query(
+      "SELECT * FROM lap_times WHERE driver_name = ? AND track = ? AND car = ? ORDER BY lap_time ASC LIMIT 1",
+      [driver_name, track, car]
+    );
+
+    if (rows.length === 0) {
+      return res.json({ personalBest: null });
+    }
+
+    res.json({ personalBest: rows[0] });
+  } catch (error) {
+    console.error("Error fetching personal best:", error);
+    res.status(500).json({ error: "Failed to fetch personal best" });
+  }
+});
+
 // Get statistics
 app.get("/api/stats", async (req, res) => {
   try {
@@ -117,6 +143,19 @@ app.delete("/api/lap-times/:id", async (req, res) => {
   }
 });
 
+// Initialize LMU Socket client
+const lmuClient = new LMUSocketClient();
+
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`\n🚀 Server running on http://localhost:${PORT}`);
+  console.log("📊 Starting LMU telemetry listener...\n");
+  lmuClient.start();
+  console.log("💡 Start LMU and begin driving to see lap times!\n");
+});
+
+// Graceful shutdown
+process.on("SIGINT", () => {
+  console.log("\n\n👋 Shutting down gracefully...");
+  lmuClient.stop();
+  process.exit(0);
 });
